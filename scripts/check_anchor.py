@@ -5,12 +5,13 @@ import argparse
 import hashlib
 import sys
 from pathlib import Path
-from urllib.request import urlopen, Request
-from urllib.error import URLError, HTTPError
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 
 
 def parse_ref_file(path: Path) -> dict[str, str]:
     data: dict[str, str] = {}
+
     for raw_line in path.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
@@ -64,6 +65,7 @@ def main() -> int:
     if not ref_path.exists():
         print(f"[ERROR] Missing ref file: {ref_path}", file=sys.stderr)
         return 1
+
     if not lock_path.exists():
         print(f"[ERROR] Missing lock file: {lock_path}", file=sys.stderr)
         return 1
@@ -74,8 +76,12 @@ def main() -> int:
         print(f"[ERROR] {exc}", file=sys.stderr)
         return 1
 
-    anchor_url = build_raw_url(ref["owner"], ref["repo"], ref["branch"], ref["path"])
-    remote_sha_url = build_raw_url(ref["owner"], ref["repo"], ref["branch"], ref["sha_path"])
+    anchor_url = build_raw_url(
+        ref["owner"], ref["repo"], ref["branch"], ref["path"]
+    )
+    remote_sha_url = build_raw_url(
+        ref["owner"], ref["repo"], ref["branch"], ref["sha_path"]
+    )
 
     try:
         anchor_bytes = fetch_bytes(anchor_url)
