@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0.0",
+  "component_name": "ASI_MOD",
+  "repository_name": "ASI_MOD",
+  "ontological_root": "Vectaetos",
+  "sibling_component": "ASIMULATOR",
+  "standalone_valid": false,
+  "anchor_ref_path": "anchors/ANCHOR_REF",
+  "anchor_lock_path": "anchors/ANCHOR_SHA256.lock",
+  "canonical_manifest_path": "contracts/ASSEMBLY_MANIFEST.json",
+  "full_boot_requires": [
+    "Vectaetos",
+    "ASIMULATOR"
+  ],
+  "operative_mode_requires_empirical_safety_unlock": true,
+  "allowed_modes": [
+    "NO_BOOT",
+    "NO_FULL_BOOT",
+    "NO_OPERATIVE_MODE",
+    "FULL_BOOT"
+  ]
+}
