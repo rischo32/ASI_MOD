@@ -1,119 +1,101 @@
 #!/usr/bin/env python3
+"""
+Triadic Anchor Integrity Checker
+
+Role:
+- verifies that a downstream repository keeps its canonical anchor reference locked
+- compares ANCHOR_REF content hash against ANCHOR_SHA256.lock
+- does not fetch remote content
+- does not mutate files
+- does not define ontology
+- does not validate deployment, safety, or operational legitimacy
+
+Python:
+- 3.11+
+"""
+
 from __future__ import annotations
 
 import argparse
 import hashlib
 import sys
 from pathlib import Path
-from urllib.request import Request, urlopen
-from urllib.error import HTTPError, URLError
 
 
-def parse_ref_file(path: Path) -> dict[str, str]:
-    data: dict[str, str] = {}
+def sha256_file(path: Path) -> str:
+    hasher = hashlib.sha256()
 
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if "=" not in line:
-            raise ValueError(f"Invalid line in {path}: {raw_line!r}")
-        key, value = line.split("=", 1)
-        data[key.strip()] = value.strip()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            hasher.update(chunk)
 
-    required = {"owner", "repo", "branch", "path", "sha_path"}
-    missing = required - set(data)
-    if missing:
-        raise ValueError(f"Missing keys in {path}: {', '.join(sorted(missing))}")
-
-    return data
+    return hasher.hexdigest()
 
 
-def fetch_bytes(url: str, timeout: int = 20) -> bytes:
-    req = Request(url, headers={"User-Agent": "anchor-integrity-check/1.0"})
-    with urlopen(req, timeout=timeout) as resp:
-        return resp.read()
+def read_lock(path: Path) -> str:
+    text = path.read_text(encoding="utf-8").strip()
 
+    if not text:
+        raise ValueError(f"Empty lock file: {path}")
 
-def sha256_bytes(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
+    first_token = text.split()[0].strip()
 
+    if len(first_token) != 64:
+        raise ValueError(f"Invalid SHA-256 lock format in {path}")
 
-def build_raw_url(owner: str, repo: str, branch: str, path: str) -> str:
-    return f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}"
+    return first_token.lower()
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Verify local anchor lock against canonical VECTAETOS anchor."
+        description="Verify downstream triadic anchor integrity lock."
     )
     parser.add_argument(
         "--ref",
-        default="anchors/ANCHOR_REF",
-        help="Path to ANCHOR_REF file.",
+        type=Path,
+        required=True,
+        help="Path to anchor reference file.",
     )
     parser.add_argument(
         "--lock",
-        default="anchors/ANCHOR_SHA256.lock",
-        help="Path to local lock file.",
+        type=Path,
+        required=True,
+        help="Path to SHA-256 lock file.",
     )
+
     args = parser.parse_args()
 
-    ref_path = Path(args.ref)
-    lock_path = Path(args.lock)
+    ref_path = args.ref
+    lock_path = args.lock
 
     if not ref_path.exists():
-        print(f"[ERROR] Missing ref file: {ref_path}", file=sys.stderr)
-        return 1
+        print(f"[ERROR] Anchor reference not found: {ref_path}", file=sys.stderr)
+        return 2
 
     if not lock_path.exists():
-        print(f"[ERROR] Missing lock file: {lock_path}", file=sys.stderr)
-        return 1
+        print(f"[ERROR] Anchor lock not found: {lock_path}", file=sys.stderr)
+        return 2
 
     try:
-        ref = parse_ref_file(ref_path)
+        computed = sha256_file(ref_path)
+        committed = read_lock(lock_path)
+    except OSError as exc:
+        print(f"[ERROR] File access failure: {exc}", file=sys.stderr)
+        return 2
     except ValueError as exc:
         print(f"[ERROR] {exc}", file=sys.stderr)
-        return 1
+        return 2
 
-    anchor_url = build_raw_url(
-        ref["owner"], ref["repo"], ref["branch"], ref["path"]
-    )
-    remote_sha_url = build_raw_url(
-        ref["owner"], ref["repo"], ref["branch"], ref["sha_path"]
-    )
+    print(f"Reference: {ref_path}")
+    print(f"Lock:      {lock_path}")
+    print(f"Computed:  {computed}")
+    print(f"Committed: {committed}")
 
-    try:
-        anchor_bytes = fetch_bytes(anchor_url)
-        remote_sha = fetch_bytes(remote_sha_url).decode("utf-8").strip()
-    except HTTPError as exc:
-        print(f"[ERROR] HTTP error while fetching canonical anchor: {exc}", file=sys.stderr)
-        return 1
-    except URLError as exc:
-        print(f"[ERROR] Network error while fetching canonical anchor: {exc}", file=sys.stderr)
-        return 1
-    except Exception as exc:
-        print(f"[ERROR] Unexpected fetch error: {exc}", file=sys.stderr)
-        return 1
-
-    computed_sha = sha256_bytes(anchor_bytes)
-    local_sha = lock_path.read_text(encoding="utf-8").strip()
-
-    if remote_sha != computed_sha:
-        print("[ERROR] Canonical repo inconsistency detected.", file=sys.stderr)
-        print(f"        remote sha file: {remote_sha}", file=sys.stderr)
-        print(f"        computed sha   : {computed_sha}", file=sys.stderr)
-        return 1
-
-    if local_sha != computed_sha:
-        print("[ERROR] Local lock does not match canonical anchor.", file=sys.stderr)
-        print(f"        local lock     : {local_sha}", file=sys.stderr)
-        print(f"        canonical sha  : {computed_sha}", file=sys.stderr)
+    if computed != committed:
+        print("[ERROR] Anchor integrity mismatch.", file=sys.stderr)
         return 1
 
     print("[OK] Anchor integrity verified.")
-    print(f"     Canonical URL: {anchor_url}")
-    print(f"     SHA-256      : {computed_sha}")
     return 0
 
 
