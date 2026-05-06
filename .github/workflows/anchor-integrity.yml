@@ -5,14 +5,14 @@ on:
     paths:
       - "anchors/ANCHOR_REF"
       - "anchors/ANCHOR_SHA256.lock"
-      - "scripts/check_anchor.py"
+      - "scripts/check_upstream_anchor.py"
       - ".github/workflows/anchor-integrity.yml"
 
   pull_request:
     paths:
       - "anchors/ANCHOR_REF"
       - "anchors/ANCHOR_SHA256.lock"
-      - "scripts/check_anchor.py"
+      - "scripts/check_upstream_anchor.py"
       - ".github/workflows/anchor-integrity.yml"
 
   workflow_dispatch:
@@ -21,7 +21,7 @@ permissions:
   contents: read
 
 jobs:
-  verify-anchor-integrity:
+  verify-upstream-anchor-integrity:
     runs-on: ubuntu-latest
 
     steps:
@@ -45,26 +45,29 @@ jobs:
 
           git checkout --force FETCH_HEAD
 
+      - name: Fetch canonical VECTAETOS anchor
+        run: |
+          set -euo pipefail
+
+          mkdir -p .runtime/upstream
+          git init --initial-branch=main .runtime/upstream/Vectaetos
+          cd .runtime/upstream/Vectaetos
+
+          git remote add origin "https://github.com/rischo32/Vectaetos.git"
+          git fetch --no-tags --depth=1 origin main
+          git checkout --force FETCH_HEAD
+
       - name: Verify Python runtime
         run: |
           set -euo pipefail
-
           python3 --version
-          python3 - <<'PY'
-          import sys
-          if sys.version_info < (3, 11):
-              raise SystemExit("Python >= 3.11 required")
-          print("[OK] Python runtime is compatible")
-          PY
+          python3 -m py_compile scripts/check_upstream_anchor.py
 
-      - name: Compile anchor checker
+      - name: Verify downstream anchor against VECTAETOS
         run: |
           set -euo pipefail
-          python3 -m py_compile scripts/check_anchor.py
 
-      - name: Verify canonical anchor lock
-        run: |
-          set -euo pipefail
-          python3 scripts/check_anchor.py \
+          python3 scripts/check_upstream_anchor.py \
+            --upstream .runtime/upstream/Vectaetos/anchors/TRIADIC_REPOSITORY_ANCHOR.md \
             --ref anchors/ANCHOR_REF \
             --lock anchors/ANCHOR_SHA256.lock
